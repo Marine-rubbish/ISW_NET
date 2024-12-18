@@ -2,9 +2,8 @@ import os
 import random
 import time 
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
 import numpy as np
@@ -123,7 +122,7 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using {device}")
     model = ISW_Net(in_channels=3, out_channels=1).to(device)  # 根据实际图像通道数调整 in_channels
-    model_dir = '../model'
+    model_dir = './model'   # 相对工作路径而言的路径
     model_files = glob.glob(os.path.join(model_dir, 'UNet_epoch_*.pth'))
 
     if model_files:

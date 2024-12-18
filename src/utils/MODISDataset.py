@@ -19,6 +19,21 @@ from albumentations.pytorch import ToTensorV2
 #     ])
 
 def get_training_augmentation():
+    """
+    定义训练阶段的图像增强方法。
+
+    返回
+    ---
+    albumentations.Compose
+        包含多种图像增强操作的组合，包括水平翻转、垂直翻转、仿射变换、亮度对比度调整、乘性噪声、调整大小以及将图像转换为张量。
+
+    示例
+    ---
+    ```python
+    transform = get_training_augmentation()
+    ```
+    """
+
     return A.Compose([
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
@@ -28,6 +43,7 @@ def get_training_augmentation():
         A.Resize(width=256, height=256),
         ToTensorV2()
     ])
+    
 
 class MODISDataset(Dataset):
     """
