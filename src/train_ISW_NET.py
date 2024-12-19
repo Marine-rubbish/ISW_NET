@@ -3,19 +3,21 @@ import random
 import time 
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset, ConcatDataset
 from torchvision import transforms
 from PIL import Image
 import numpy as np
 import glob
 import matplotlib.pyplot as plt
 
-from utils.MODISDataset import MODISDataset
-from utils.MODISDataset import get_training_augmentation
+from utils.MODISDataset import *
 from utils.ISW_NET import ISW_Net
 from utils.MCCLoss import MCCLoss
 
 def set_seed(seed):
+    """
+    设置随机种子。
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -31,11 +33,22 @@ def load_image(image_path):
     """
     image = Image.open(image_path).convert('RGB')  # 确保图像为 RGB 格式
     return image
+
+def load_checkpoint(model, optimizer, checkpoint_path):
+    """
+    加载模型检查点。
+    """
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss_list = checkpoint['loss_list']
+    lr_list = checkpoint['lr_list']
+    return model, optimizer, epoch, loss_list, lr_list
     
-def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, 
-                augmented_dataloader: torch.utils.data.DataLoader, criterion: torch.nn.Module,
-                optimizer: torch.optim.Optimizer, checkpoint_path: str,
-                num_epochs: int, latest_epoch: int):
+def train_model(model: torch.nn.Module, images_path: str, label_path: str,
+                criterion: torch.nn.Module, optimizer: torch.optim.Optimizer, 
+                checkpoint_path: str, num_epochs: int, batch_size: int = 16, best_loss: float = float('inf')):
     """
     训练模型。
 
@@ -43,42 +56,56 @@ def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader,
     ---
     model torch.nn.Module: 
         要训练的模型。
-    dataloader torch.utils.data.DataLoader: 
-        用于训练的数据加载器。
+    images_path str:
+        图像文件路径。
+    label_path str:
+        标签文件路径。
     augmented_dataloader torch.utils.data.DataLoader:
         用于训练的增强数据加载器。
     criterion torch.nn.Module: 
         损失函数。
     optimizer torch.optim.Optimizer: 
         优化器。
+    checkpoint_path str:
+        保存模型检查点的路径。
     num_epochs int: 
         训练的轮数。
-    latest_epochd int: 
-        最新模型已经训练过的次数.
+    batch_size int:
+        批处理大小，默认为 16。
+    best_loss float:
+        最佳损失，默认为正无穷。
 
     示例
     ---
     ```python
-    train_model(model, dataloader, criterion, optimizer, num_epochs)
+    train_model(model, image_paths, label_paths, augmented_dataloader, criterion, optimizer, checkpoint_path, num_epochs)
     ```
     """
+    # 开始训练模式
     model.train()
+
+    # 初始化变量
     loss_list = np.zeros(num_epochs)
     lr_list = np.zeros(num_epochs)
+    model_files = glob.glob(os.path.join(checkpoint_path, 'checkpoint_epoch_*.pth'))
+
+    # 加载最新的检查点
+    if model_files:
+        model, optimizer, latest_epoch, loss_list, lr_list = load_checkpoint(model, optimizer, model_files[-1])
+        print(f"Loaded checkpoint from {model}, starting at epoch {latest_epoch}")
+    else:
+        latest_epoch = 0
+        print("No checkpoint found, starting training from epoch 0")
+
+    # 创建增强数据集
+    aug_dataset = get_augmentation_dataset(images_path, label_path)
+
+    # 创建数据加载器
+    dataloader = DataLoader(aug_dataset, batch_size=batch_size, shuffle=True)
     for epoch in range(latest_epoch, num_epochs):
         epoch_start = time.time()
         print(f"Epoch {epoch+1}/{num_epochs}")
         epoch_loss = 0
-        for images, masks in augmented_dataloader:
-            images = images.to(device)
-            masks = masks.to(device)
-
-            outputs = model(images)
-            loss = criterion(outputs, masks)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
         for images, masks in dataloader:
             images = images.to(device)
             masks = masks.to(device)
@@ -88,7 +115,7 @@ def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader,
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-        avg_loss = epoch_loss / (len(dataloader) + len(augmented_dataloader))
+        avg_loss = epoch_loss / (len(dataloader))
         loss_list[epoch] = avg_loss
         lr_list[epoch] = optimizer.param_groups[0]['lr']
         # 保存Checkpoint
@@ -104,6 +131,8 @@ def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader,
         # 保存最佳模型（基于平均损失）
         if avg_loss < best_loss:
             best_loss = avg_loss
+            if not os.path.exists(checkpoint_path):
+                 os.makedirs(checkpoint_path)
             torch.save(model.state_dict(), os.path.join(checkpoint_path, 'best_model.pth'))
             print(f"Checkpoint saved at epoch {epoch+1}")
         if (epoch + 1) % 100 == 0:
@@ -159,14 +188,14 @@ if __name__ == '__main__':
     model_files = glob.glob(os.path.join(model_dir, 'UNet_epoch_*.pth'))
     checkpoint_path = './model/checkpoints'
 
-    if model_files:
-        latest_model = max(model_files, key=lambda x: int(x.split('_')[-1].split('.pth')[0]))
-        latest_epoch = int(latest_model.split('_')[-1].split('.pth')[0])
-        model.load_state_dict(torch.load(latest_model, weights_only=True))
-        print(f"Loaded model from {latest_model}")
-    else:
-        latest_epoch = 0
-        print("No existing model found. Creating a new model.")
+    # if model_files:
+    #     latest_model = max(model_files, key=lambda x: int(x.split('_')[-1].split('.pth')[0]))
+    #     latest_epoch = int(latest_model.split('_')[-1].split('.pth')[0])
+    #     model.load_state_dict(torch.load(latest_model, weights_only=True))
+    #     print(f"Loaded model from {latest_model}")
+    # else:
+    #     latest_epoch = 0
+    #     print("No existing model found. Creating a new model.")
 
     criterion = MCCLoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
@@ -175,7 +204,7 @@ if __name__ == '__main__':
     num_epochs = 1000
     start_time = time.time()
     loss_list, lr_list = train_model(model, dataloader, augmented_data_loader, criterion, 
-                                     optimizer, checkpoint_path, num_epochs, latest_epoch)
+                                     optimizer, checkpoint_path, num_epochs)
     print(f"Training time: {time.time() - start_time:.0f}s")
 
     # 调用可视化函数

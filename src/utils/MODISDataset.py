@@ -7,18 +7,6 @@ from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-# def get_training_augmentation():
-#     return A.Compose([
-#         A.HorizontalFlip(p=0.5),
-#         A.VerticalFlip(p=0.5),
-#         A.Rotate(limit=360, p=0.5),
-#         A.ShiftScaleRotate(scale_limit=0.2, p=0.5),
-#         A.RandomCrop(width=256, height=256),
-#         A.RandomBrightnessContrast(p=0.2),
-#         A.Resize(width=256, height=256),
-#         ToTensorV2()
-#     ])
-
 def get_training_augmentation():
     """
     定义训练阶段的图像增强方法。
@@ -104,6 +92,54 @@ class MODISDataset(Dataset):
 
         return image, label
     
+def get_augmentation_dataset(images_path: str, labels_path: str, transform=None):
+    """
+    返回经过增强的数据集。
+
+    参数
+    ---
+    images_path str: 
+        图像文件路径。
+    labels_path str: 
+        标签文件路径。
+    transform (callable, 可选): 
+        应用于图像和标签的转换函数，默认为 None。
+
+    返回
+    ---
+    torch.utils.data.Dataset
+        包含多种图像增强操作的组合，包括调整大小以及将图像转换为张量。
+
+    示例
+    ---
+    ```python
+    augmented_dataset = get_augmentation(images_path, labels_path, transform)
+    ```
+    """
+
+    if image_paths is None or label_paths is None:
+        raise ValueError("image_paths and label_paths must be provided.")
+    
+    base_dataset = MODISDataset(images_path, labels_path)
+    
+    if transform is not None:
+        trans_dataset = MODISDataset(images_path, labels_path, transform=transform)
+        combined_dataset = torch.utils.data.ConcatDataset([base_dataset, trans_dataset])
+    
+    resize = A.Resize(width=256, height=256)
+    transforms = [
+        A.Compose([A.HorizontalFlip(p=1), resize, ToTensorV2()]),
+        A.Compose([A.VerticalFlip(p=1), resize, ToTensorV2()]),
+        A.Compose([A.Affine(scale=(0.8, 1.2), p=1), resize, ToTensorV2()]),
+        A.Compose([A.RandomBrightnessContrast(p=1), resize, ToTensorV2()]),
+        A.Compose([A.MultiplicativeNoise(multiplier=(0.9, 1.1), p=1), resize, ToTensorV2()])
+    ]
+
+    for transform in transforms:
+        trans_dataset = MODISDataset(images_path, labels_path, transform=transform)
+        combined_dataset = torch.utils.data.ConcatDataset([combined_dataset, trans_dataset])
+    
+    return combined_dataset
 
 # 仅作为测试代码    
 if __name__ == '__main__':
