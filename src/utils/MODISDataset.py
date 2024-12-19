@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import torch
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
@@ -82,17 +83,21 @@ class MODISDataset(Dataset):
         label_path = self.label_paths[idx]
         label = Image.open(label_path).convert('L')  # 标签为灰度图
 
+        image = np.array(image)
+        label = np.array(label)
+
         # 应用转换
         if self.transform:
             if isinstance(self.transform, A.Compose):
-                image = np.array(image)
-                label = np.array(label)
                 augmented = self.transform(image=image, mask=label)
                 image = augmented['image']
                 label = augmented['mask']
             else:
                 image = self.transform(image)
                 label = self.transform(label)
+        else:
+            image = torch.from_numpy(image).permute(2, 0, 1).float()
+            label = torch.from_numpy(label).unsqueeze(0).float()
 
         return image, label
     

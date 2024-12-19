@@ -11,6 +11,7 @@ import glob
 import matplotlib.pyplot as plt
 
 from utils.MODISDataset import MODISDataset
+from utils.MODISDataset import get_training_augmentation
 from utils.ISW_NET import ISW_Net
 from utils.MCCLoss import MCCLoss
 
@@ -31,8 +32,8 @@ def load_image(image_path):
     image = Image.open(image_path).convert('RGB')  # 确保图像为 RGB 格式
     return image
     
-def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, criterion: torch.nn.Module, 
-                optimizer: torch.optim.Optimizer, num_epochs: int, latest_epoch: int):
+def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, augmented_dataloader: torch.utils.data.DataLoader, 
+                criterion: torch.nn.Module, optimizer: torch.optim.Optimizer, num_epochs: int, latest_epoch: int):
     """
     训练模型。
 
@@ -42,6 +43,8 @@ def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader,
         要训练的模型。
     dataloader torch.utils.data.DataLoader: 
         用于训练的数据加载器。
+    augmented_dataloader torch.utils.data.DataLoader:
+        用于训练的增强数据加载器。
     criterion torch.nn.Module: 
         损失函数。
     optimizer torch.optim.Optimizer: 
@@ -74,7 +77,18 @@ def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader,
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-        avg_loss = epoch_loss / len(dataloader)
+        for images, masks in augmented_dataloader:
+            images = images.to(device)
+            masks = masks.to(device)
+
+            outputs = model(images)
+            loss = criterion(outputs, masks)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+        
+        avg_loss = epoch_loss / (len(dataloader) + len(augmented_dataloader))
         loss_list[epoch] = avg_loss
         lr_list[epoch] = optimizer.param_groups[0]['lr']
         if (epoch + 1) % 100 == 0:
@@ -95,12 +109,6 @@ def plot_loss_curve(loss_list):
     plt.legend()
     plt.grid(True)
     plt.show()
-    
-# 定义数据转换
-transform = transforms.Compose([
-    # transforms.Resize((256, 256)),
-    transforms.ToTensor()
-])
 
 if __name__ == '__main__':
     # 设置随机种子
@@ -112,15 +120,24 @@ if __name__ == '__main__':
     image_paths = [os.path.join(image_folder, f) for f in os.listdir(image_folder) if f.endswith('.png')]
     label_paths = [os.path.join(label_folder, f) for f in os.listdir(label_folder) if f.endswith('.png')]
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using {device}")
+
+    # 定义数据增强变换
+    transform = get_training_augmentation()
+
     # 创建数据集
-    dataset = MODISDataset(image_paths, label_paths, transform=transform)
+    dataset = MODISDataset(image_paths, label_paths, transform=None)
+
+    # 增强数据集
+    augmented_dataset = MODISDataset(image_paths, label_paths, transform=transform)
 
     # 创建数据加载器
     batch_size = 16
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    augmented_data_loader = DataLoader(augmented_dataset, batch_size=batch_size, shuffle=True)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using {device}")
+    # 创建模型、损失函数和优化器
     model = ISW_Net(in_channels=3, out_channels=1).to(device)  # 根据实际图像通道数调整 in_channels
     model_dir = './model'   # 相对工作路径而言的路径
     model_files = glob.glob(os.path.join(model_dir, 'UNet_epoch_*.pth'))
@@ -140,7 +157,7 @@ if __name__ == '__main__':
     # 开始训练
     num_epochs = 1000
     start_time = time.time()
-    loss_list, lr_list = train_model(model, dataloader, criterion, optimizer, num_epochs, latest_epoch)
+    loss_list, lr_list = train_model(model, dataloader, augmented_data_loader, criterion, optimizer, num_epochs, latest_epoch)
     print(f"Training time: {time.time() - start_time:.0f}s")
 
     # 调用可视化函数
