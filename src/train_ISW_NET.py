@@ -32,8 +32,10 @@ def load_image(image_path):
     image = Image.open(image_path).convert('RGB')  # 确保图像为 RGB 格式
     return image
     
-def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, augmented_dataloader: torch.utils.data.DataLoader, 
-                criterion: torch.nn.Module, optimizer: torch.optim.Optimizer, num_epochs: int, latest_epoch: int):
+def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, 
+                augmented_dataloader: torch.utils.data.DataLoader, criterion: torch.nn.Module,
+                optimizer: torch.optim.Optimizer, checkpoint_path: str,
+                num_epochs: int, latest_epoch: int):
     """
     训练模型。
 
@@ -67,16 +69,6 @@ def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader,
         epoch_start = time.time()
         print(f"Epoch {epoch+1}/{num_epochs}")
         epoch_loss = 0
-        for images, masks in dataloader:
-            images = images.to(device)
-            masks = masks.to(device)
-
-            outputs = model(images)
-            loss = criterion(outputs, masks)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
         for images, masks in augmented_dataloader:
             images = images.to(device)
             masks = masks.to(device)
@@ -87,16 +79,40 @@ def train_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader,
             loss.backward()
             optimizer.step()
             epoch_loss += loss.item()
-        
+        for images, masks in dataloader:
+            images = images.to(device)
+            masks = masks.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, masks)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
         avg_loss = epoch_loss / (len(dataloader) + len(augmented_dataloader))
         loss_list[epoch] = avg_loss
         lr_list[epoch] = optimizer.param_groups[0]['lr']
+        # 保存Checkpoint
+        checkpoint = {
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss_list': loss_list,
+            'lr_list': lr_list
+        }
+        torch.save(checkpoint, os.path.join(checkpoint_path, f'checkpoint_epoch_{epoch+1}.pth'))
+
+        # 保存最佳模型（基于平均损失）
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            torch.save(model.state_dict(), os.path.join(checkpoint_path, 'best_model.pth'))
+            print(f"Checkpoint saved at epoch {epoch+1}")
         if (epoch + 1) % 100 == 0:
             torch.save(model.state_dict(), f'./model/UNet_epoch_{epoch+1}.pth')
+
         print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {avg_loss:.4f}, lr: {optimizer.param_groups[0]['lr']}")
         print(f"Epoch time: {time.time() - epoch_start:.0f}s")
-    np.save('loss_list.npy', loss_list)
-    np.save('lr_list.npy', lr_list)
+        np.save('loss_list.npy', loss_list)
+        # np.save('lr_list.npy', lr_list)
     return loss_list, lr_list
     
 # 可视化损失函数变化
@@ -141,6 +157,7 @@ if __name__ == '__main__':
     model = ISW_Net(in_channels=3, out_channels=1).to(device)  # 根据实际图像通道数调整 in_channels
     model_dir = './model'   # 相对工作路径而言的路径
     model_files = glob.glob(os.path.join(model_dir, 'UNet_epoch_*.pth'))
+    checkpoint_path = './model/checkpoints'
 
     if model_files:
         latest_model = max(model_files, key=lambda x: int(x.split('_')[-1].split('.pth')[0]))
@@ -157,7 +174,8 @@ if __name__ == '__main__':
     # 开始训练
     num_epochs = 1000
     start_time = time.time()
-    loss_list, lr_list = train_model(model, dataloader, augmented_data_loader, criterion, optimizer, num_epochs, latest_epoch)
+    loss_list, lr_list = train_model(model, dataloader, augmented_data_loader, criterion, 
+                                     optimizer, checkpoint_path, num_epochs, latest_epoch)
     print(f"Training time: {time.time() - start_time:.0f}s")
 
     # 调用可视化函数

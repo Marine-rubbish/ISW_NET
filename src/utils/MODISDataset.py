@@ -92,7 +92,10 @@ class MODISDataset(Dataset):
                 augmented = self.transform(image=image, mask=label)
                 image = augmented['image']
                 label = augmented['mask']
+                image = image.float()
+                label = label.float()
             else:
+                # TODO: 处理异常情况
                 image = self.transform(image)
                 label = self.transform(label)
         else:
