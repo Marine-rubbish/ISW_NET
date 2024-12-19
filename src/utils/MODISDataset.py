@@ -81,14 +81,14 @@ class MODISDataset(Dataset):
                 image = augmented['image']
                 label = augmented['mask']
                 image = image.float()
-                label = label.float()
+                label = label.unsqueeze(0).float()
+                return image, label
             else:
                 # TODO: 处理异常情况
                 image = self.transform(image)
                 label = self.transform(label)
-        else:
-            image = torch.from_numpy(image).permute(2, 0, 1).float()
-            label = torch.from_numpy(label).unsqueeze(0).float()
+        image = torch.from_numpy(image).permute(2, 0, 1).float()
+        label = torch.from_numpy(label).unsqueeze(0).float()
 
         return image, label
     
@@ -117,14 +117,15 @@ def get_augmentation_dataset(images_path: str, labels_path: str, transform=None)
     ```
     """
 
-    if image_paths is None or label_paths is None:
+    if images_path is None or labels_path is None:
         raise ValueError("image_paths and label_paths must be provided.")
     
     base_dataset = MODISDataset(images_path, labels_path)
+    combined_dataset = base_dataset
     
     if transform is not None:
         trans_dataset = MODISDataset(images_path, labels_path, transform=transform)
-        combined_dataset = torch.utils.data.ConcatDataset([base_dataset, trans_dataset])
+        combined_dataset = torch.utils.data.ConcatDataset([combined_dataset, trans_dataset])
     
     resize = A.Resize(width=256, height=256)
     transforms = [

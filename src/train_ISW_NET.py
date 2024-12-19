@@ -46,7 +46,7 @@ def load_checkpoint(model, optimizer, checkpoint_path):
     lr_list = checkpoint['lr_list']
     return model, optimizer, epoch, loss_list, lr_list
     
-def train_model(model: torch.nn.Module, images_path: str, label_path: str,
+def train_model(model: torch.nn.Module, images_path: str, labels_path: str,
                 criterion: torch.nn.Module, optimizer: torch.optim.Optimizer, 
                 checkpoint_path: str, num_epochs: int, batch_size: int = 16, best_loss: float = float('inf')):
     """
@@ -58,7 +58,7 @@ def train_model(model: torch.nn.Module, images_path: str, label_path: str,
         要训练的模型。
     images_path str:
         图像文件路径。
-    label_path str:
+    labels_path str:
         标签文件路径。
     augmented_dataloader torch.utils.data.DataLoader:
         用于训练的增强数据加载器。
@@ -92,13 +92,13 @@ def train_model(model: torch.nn.Module, images_path: str, label_path: str,
     # 加载最新的检查点
     if model_files:
         model, optimizer, latest_epoch, loss_list, lr_list = load_checkpoint(model, optimizer, model_files[-1])
-        print(f"Loaded checkpoint from {model}, starting at epoch {latest_epoch}")
+        print(f"Loaded checkpoint from {model_files}, starting at epoch {latest_epoch}")
     else:
         latest_epoch = 0
         print("No checkpoint found, starting training from epoch 0")
 
     # 创建增强数据集
-    aug_dataset = get_augmentation_dataset(images_path, label_path)
+    aug_dataset = get_augmentation_dataset(images_path, labels_path)
 
     # 创建数据加载器
     dataloader = DataLoader(aug_dataset, batch_size=batch_size, shuffle=True)
@@ -168,19 +168,8 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using {device}")
 
-    # 定义数据增强变换
-    transform = get_training_augmentation()
-
-    # 创建数据集
-    dataset = MODISDataset(image_paths, label_paths, transform=None)
-
-    # 增强数据集
-    augmented_dataset = MODISDataset(image_paths, label_paths, transform=transform)
-
     # 创建数据加载器
     batch_size = 16
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    augmented_data_loader = DataLoader(augmented_dataset, batch_size=batch_size, shuffle=True)
 
     # 创建模型、损失函数和优化器
     model = ISW_Net(in_channels=3, out_channels=1).to(device)  # 根据实际图像通道数调整 in_channels
@@ -188,22 +177,13 @@ if __name__ == '__main__':
     model_files = glob.glob(os.path.join(model_dir, 'UNet_epoch_*.pth'))
     checkpoint_path = './model/checkpoints'
 
-    # if model_files:
-    #     latest_model = max(model_files, key=lambda x: int(x.split('_')[-1].split('.pth')[0]))
-    #     latest_epoch = int(latest_model.split('_')[-1].split('.pth')[0])
-    #     model.load_state_dict(torch.load(latest_model, weights_only=True))
-    #     print(f"Loaded model from {latest_model}")
-    # else:
-    #     latest_epoch = 0
-    #     print("No existing model found. Creating a new model.")
-
     criterion = MCCLoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
     # 开始训练
     num_epochs = 1000
     start_time = time.time()
-    loss_list, lr_list = train_model(model, dataloader, augmented_data_loader, criterion, 
+    loss_list, lr_list = train_model(model, image_paths, label_paths, criterion, 
                                      optimizer, checkpoint_path, num_epochs)
     print(f"Training time: {time.time() - start_time:.0f}s")
 
